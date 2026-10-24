@@ -1,0 +1,13 @@
+{
+  "__TypeId": "ca028d68-85a9-5f3d-ad2f-c54db757d6fa",
+  "Name": "Turian.Engine.Physics.Bepu",
+  "RootNamespace": "Turian.Engine.Physics",
+  "Id": "1d458fe5-15f2-5f95-870a-2e3bc35da3fc",
+  "EditorOnly": false,
+  "AllowUnsafeCode": true,
+  "References": [
+    {
+      "AssetId": "2e6de601-069d-5c71-9922-0220af830eaf"
+    }
+  ]
+}

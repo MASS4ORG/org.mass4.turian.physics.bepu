@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <OutputType>Exe</OutputType>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>true</IsTestProject>
+        <NoWarn>$(NoWarn);CA1707</NoWarn>
+        <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+        <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <DisableMSBuildAssemblyCopyCheck>true</DisableMSBuildAssemblyCopyCheck>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="../../Source/Turian.Engine.Physics.Bepu/Turian.Engine.Physics.Bepu.csproj"/>
+        <ProjectReference Include="$(PhysicsDir)Brick~/Source/Turian.Engine.Physics/Turian.Engine.Physics.csproj"/>
+        <ProjectReference Include="$(TurianDir)Turian/Editor/Core/Turian.Editor.Core.csproj"/>
+        <ProjectReference Include="$(TurianDir)Turian/Editor/CSharp/CodeGenerator/Turian.CSharp.CodeGenerator.csproj"
+                          OutputItemType="Analyzer" ReferenceOutputAssembly="false"/>
+        <AssemblyMetadata Include="PhysicsBrickRoot" Value="$(PhysicsDir)"/>
+        <Compile Include="$(TurianDir)Turian.Tests/Fixtures/GltfGeometryFixture.cs" Link="Shared/GltfGeometryFixture.cs"/>
+        <Compile Include="$(TurianDir)Turian.Tests/SerialTests.cs" Link="Shared/SerialTests.cs"/>
+    </ItemGroup>
+    <ItemGroup>
+        <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.12.0"/>
+        <PackageReference Include="Microsoft.Build" Version="18.9.6"/>
+        <PackageReference Include="NSubstitute" Version="6.2.0"/>
+        <PackageReference Include="xunit.v3" Version="4.0.2"/>
+    </ItemGroup>
+</Project>

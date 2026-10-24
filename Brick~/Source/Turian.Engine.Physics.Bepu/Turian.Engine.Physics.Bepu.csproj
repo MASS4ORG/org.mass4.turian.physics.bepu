@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <Version>1.0.0</Version>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <ImplicitUsings>disable</ImplicitUsings>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="$(TurianDir)Turian/Engine/Core/Turian.Engine.Core.csproj"/>
+        <ProjectReference Include="$(PhysicsDir)Brick~/Source/Turian.Engine.Physics/Turian.Engine.Physics.csproj"/>
+        <InternalsVisibleTo Include="Turian.Physics.Tests"/>
+        <InternalsVisibleTo Include="Turian.Physics.Bepu.Tests"/>
+    </ItemGroup>
+    <ItemGroup>
+        <PackageReference Include="BepuPhysics" Version="2.5.0-beta.33"/>
+        <PackageReference Include="BepuUtilities" Version="2.5.0-beta.33"/>
+    </ItemGroup>
+    <ItemGroup>
+        <Compile Include="../../../Runtime/**/*.cs"/>
+    </ItemGroup>
+    <Target Name="PrecastRuntimeAssemblies" AfterTargets="Build" Condition="'$(TargetFramework)' != ''">
+        <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(BrickDir)Brick~/Precast/lib"/>
+    </Target>
+</Project>

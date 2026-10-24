@@ -1,0 +1,15 @@
+<Project>
+    <!-- The brick builds against a Turian checkout: a sibling of the bricks folder unless TurianDir is given. -->
+    <PropertyGroup>
+        <TurianDir Condition="'$(TurianDir)' == ''">$(MSBuildThisFileDirectory)../../../../Turian/</TurianDir>
+        <TurianDir>$([MSBuild]::NormalizeDirectory('$(TurianDir)'))</TurianDir>
+        <BrickDir>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)../..'))</BrickDir>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <PhysicsDir Condition="'$(PhysicsDir)' == ''">$(BrickDir)../org.mass4.turian.physics/</PhysicsDir>
+        <PhysicsDir>$([MSBuild]::NormalizeDirectory('$(PhysicsDir)'))</PhysicsDir>
+    </PropertyGroup>
+
+    <Import Project="$(TurianDir)Directory.Build.props"/>
+</Project>
