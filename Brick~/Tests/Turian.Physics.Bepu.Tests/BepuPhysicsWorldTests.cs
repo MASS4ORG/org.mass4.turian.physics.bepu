@@ -64,6 +64,113 @@ public sealed class BepuPhysicsWorldTests : IDisposable
         Assert.False(world.IsAwake(box));
     }
 
+    /// <summary>
+    /// A body calm except for a one-step nudge every eighth step never stays below the threshold for Bepu's 32 steps
+    /// in a row, yet still sleeps when the nudges stay under the upper threshold; clearly moving nudges keep it awake.
+    /// </summary>
+    [Theory]
+    [InlineData(0.2f, true)]
+    [InlineData(0.5f, false)]
+    public void BriefSpikes_HoldTheSleepCount(float nudge, bool sleeps)
+    {
+        var box = world.CreateBody(BodyDesc.Dynamic(new PhysicsPose(new Vector3(0, 3, 0), Quaternion.Identity),
+            Collider(ShapeDesc.Box(Vector3.One), 1)) with
+        { GravityScale = 0f, SleepThreshold = 0.1f });
+
+        for (var step = 0; step < 400 && world.IsAwake(box); step++)
+        {
+            var bepu = (BepuPhysicsWorld)world;
+            bepu.Simulation.Bodies[bepu.Get(box).Body].Velocity =
+                new BepuPhysics.BodyVelocity(new Vector3(step % 8 == 0 ? nudge : 0f, 0, 0), Vector3.Zero);
+            world.Step(Dt);
+        }
+
+        Assert.Equal(sleeps, !world.IsAwake(box));
+    }
+
+    /// <summary>A body moving steadily inside the hysteresis band never earns calm steps.</summary>
+    [Theory]
+    [InlineData(0.2f, 0f, 0.1f, true)]
+    [InlineData(0f, 0.2f, 0.1f, true)]
+    [InlineData(0f, 0f, -1f, true)]
+    [InlineData(0f, 0f, 0f, false)]
+    public void SleepThreshold_RespectsSustainedMotionAndDisabledSleeping(float speed, float spin, float threshold,
+        bool awake)
+    {
+        var box = world.CreateBody(BodyDesc.Dynamic(PhysicsPose.Identity,
+            Collider(ShapeDesc.Box(Vector3.One), 1)) with
+        {
+            GravityScale = 0f,
+            LinearDamping = 0f,
+            AngularDamping = 0f,
+            SleepThreshold = threshold,
+            Velocity = new PhysicsVelocity(new Vector3(speed, 0, 0), new Vector3(0, spin, 0)),
+        });
+
+        Run(400);
+
+        Assert.Equal(awake, world.IsAwake(box));
+    }
+
+    /// <summary>An explicit wake cancels sleep candidacy before the next native sleep pass.</summary>
+    [Fact]
+    public void Wake_CancelsPendingSleep()
+    {
+        var box = world.CreateBody(BodyDesc.Dynamic(PhysicsPose.Identity,
+            Collider(ShapeDesc.Box(Vector3.One), 1)) with
+        { GravityScale = 0f });
+        Run(32);
+        Assert.True(world.IsAwake(box));
+
+        world.Wake(box);
+        Run(5);
+
+        Assert.True(world.IsAwake(box));
+    }
+
+    /// <summary>Waking a body starts a fresh calm period, even immediately after it fell asleep.</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    public void Wake_DiscardsThePreviousCalmPeriod(int command)
+    {
+        var box = world.CreateBody(BodyDesc.Dynamic(PhysicsPose.Identity,
+            Collider(ShapeDesc.Box(Vector3.One), 1)) with
+        { GravityScale = 0f });
+        for (var i = 0; i < 100 && world.IsAwake(box); i++)
+        {
+            world.Step(Dt);
+        }
+
+        Assert.False(world.IsAwake(box));
+        switch (command)
+        {
+            case 0:
+                world.Wake(box);
+                break;
+            case 1:
+                world.SetVelocity(box, new PhysicsVelocity(new Vector3(0.02f, 0, 0), Vector3.Zero));
+                break;
+            case 2:
+                world.ApplyImpulse(box, new Vector3(0.02f, 0, 0), world.GetCenterOfMass(box));
+                break;
+            case 3:
+                world.ApplyAngularImpulse(box, new Vector3(0, 0.002f, 0));
+                break;
+            default:
+                world.SetPose(box, new PhysicsPose(Vector3.UnitY, Quaternion.Identity));
+                break;
+        }
+
+        Run(5);
+        Assert.True(world.IsAwake(box));
+        Run(100);
+        Assert.False(world.IsAwake(box));
+    }
+
     /// <summary>A bounce returns about bounciness squared of the drop height, never more than the drop.</summary>
     [Theory]
     [InlineData(1f, PhysicsMaterialCombine.Average, 0.5f, 6f)]

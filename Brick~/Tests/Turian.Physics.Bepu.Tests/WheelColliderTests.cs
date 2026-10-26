@@ -172,6 +172,17 @@ public sealed class WheelColliderTests : IDisposable
         Assert.Equal(0f, loaded.MotorTorque);
     }
 
+    /// <summary>Inactive wheel subtrees do not take suspension mass away from the wheels still being simulated.</summary>
+    [Fact]
+    public void InactiveWheelNodesDoNotShareSuspensionMass()
+    {
+        Car();
+        wheels[0].Node!.IsActive = false;
+        Assert.Equal(400f / 3f, wheels[1].SprungMass, 0.001f);
+        wheels[1].IsActive = false;
+        Assert.Equal(200f, wheels[2].SprungMass, 0.001f);
+    }
+
     /// <summary>The friction curve rises to its extremum, eases to its asymptote and keeps it.</summary>
     [Fact]
     public void FrictionCurve_FollowsUnitysShape()

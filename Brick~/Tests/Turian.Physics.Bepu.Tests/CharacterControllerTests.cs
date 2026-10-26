@@ -188,6 +188,73 @@ public sealed class CharacterControllerTests : IDisposable
         Assert.True(controller.IsGrounded);
     }
 
+    /// <summary>A stationary Move retains grounding and follows a translating and rotating support.</summary>
+    [Fact]
+    public void StationaryMoveRetainsGroundAndRidesThePlatform()
+    {
+        var platformBody = new RigidbodyComponent { IsKinematic = true };
+        var platform = Add("platform", new Vector3(0, 1, 0), platformBody,
+            new BoxColliderComponent { Size = new Vector3(6, 0.2f, 6) });
+        var (node, controller) = Character(new Vector3(1, 1.12f, 0));
+        Start();
+        Walk(controller, Vector3.Zero, 10);
+        Assert.True(controller.IsGrounded);
+        controller.Move(Vector3.Zero);
+        Assert.True(controller.IsGrounded);
+        var local = Vector3.Transform(node.GlobalTransform.Position,
+            Matrix4x4.Invert(platform.GlobalTransform.Matrix4X4(), out var inverse) ? inverse : Matrix4x4.Identity);
+        for (var i = 1; i <= 60; i++)
+        {
+            platformBody.MovePosition(new Vector3(i * 0.02f, 1, 0));
+            platformBody.MoveRotation(Quaternion.CreateFromAxisAngle(Vector3.UnitY, i * 0.01f));
+            Step();
+            controller.Move(Vector3.Zero);
+        }
+        var expected = Vector3.Transform(local, platform.GlobalTransform.Matrix4X4());
+        Assert.True(controller.IsGrounded);
+        Assert.InRange(Vector3.Distance(expected, node.GlobalTransform.Position), 0, 0.06f);
+    }
+
+    /// <summary>Teleporting clears support and falling state so a distant platform cannot carry the character.</summary>
+    [Fact]
+    public void TeleportClearsMotionAndPreviousSupport()
+    {
+        var body = new RigidbodyComponent { IsKinematic = true };
+        Add("platform", new(0, 1, 0), body, new BoxColliderComponent { Size = new(4, 0.2f, 4) });
+        var (node, controller) = Character(new(0, 1.2f, 0));
+        Start();
+        Walk(controller, Vector3.Zero, 20);
+        Assert.True(controller.IsGrounded);
+        controller.Teleport(new(10, 3, 0));
+        Assert.False(controller.IsGrounded);
+        Assert.Equal(Vector3.Zero, controller.Velocity);
+        Assert.Equal(CollisionFlags.None, controller.CollisionFlags);
+        body.MovePosition(new(2, 1, 0));
+        Step();
+        controller.Move(Vector3.Zero);
+        Assert.Equal(new Vector3(10, 3, 0), node.GlobalTransform.Position);
+        controller.SimpleMove(Vector3.Zero, Dt);
+        Assert.InRange(controller.Velocity.Y, -0.2f, 0);
+    }
+
+    /// <summary>Ground snapping follows a small drop while upward movement remains free to jump.</summary>
+    [Fact]
+    public void GroundSnapFollowsDropsButDoesNotCancelJumping()
+    {
+        var ledge = Block("ledge", new(0, 0.1f, 0), new(4, 0.2f, 4));
+        var (node, controller) = Character(new(0, 0.22f, 0));
+        Start();
+        Walk(controller, Vector3.Zero, 10);
+        ledge.IsActive = false;
+        Step();
+        controller.Move(Vector3.Zero);
+        Assert.True(controller.IsGrounded);
+        Assert.InRange(node.GlobalTransform.Position.Y, -0.01f, 0.05f);
+        controller.Move(new(0, 0.15f, 0));
+        Assert.False(controller.IsGrounded);
+        Assert.InRange(node.GlobalTransform.Position.Y, 0.14f, 0.2f);
+    }
+
     /// <summary>A character placed inside a box is pushed out of it by its next move.</summary>
     [Fact]
     public void Overlaps_ArePushedOut()
@@ -213,6 +280,7 @@ public sealed class CharacterControllerTests : IDisposable
             Height = 1.8f,
             SlopeLimit = 50f,
             StepOffset = 0.4f,
+            GroundSnapDistance = 0.6f,
             SkinWidth = 0.03f,
             MinMoveDistance = 0.01f,
             Center = new Vector3(0, 0.9f, 0),
@@ -225,6 +293,7 @@ public sealed class CharacterControllerTests : IDisposable
         Assert.Equal((0.3f, 1.8f, 50f, 0.4f, 0.03f, 0.01f), (loaded.Radius, loaded.Height, loaded.SlopeLimit,
             loaded.StepOffset, loaded.SkinWidth, loaded.MinMoveDistance));
         Assert.Equal(new Vector3(0, 0.9f, 0), loaded.Center);
+        Assert.Equal(0.6f, loaded.GroundSnapDistance);
         Assert.Equal(ShapeType.Capsule, loaded.Describe(Vector3.One, out _).Type);
     }
 

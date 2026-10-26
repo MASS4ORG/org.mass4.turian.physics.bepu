@@ -75,6 +75,12 @@ sealed class BepuBody
     /// <summary>Whether a kinematic target set the velocity for the coming step only.</summary>
     public bool HasKinematicTarget { get; set; }
 
+    /// <summary>Steps the body has spent below its sleep threshold, held through brief spikes.</summary>
+    public int CalmSteps { get; set; }
+
+    /// <summary>The world step <see cref="CalmSteps"/> was last counted on, so a body that slept starts over.</summary>
+    public int CalmAt { get; set; } = -1;
+
     /// <summary>The joints attached to this body.</summary>
     public List<JointHandle> Joints { get; } = [];
 

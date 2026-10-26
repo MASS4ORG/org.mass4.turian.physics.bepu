@@ -1,3 +1,4 @@
+using System.Reflection;
 using Microsoft.Extensions.Logging;
 using Log = Turian.Engine.Core.Log;
 
@@ -6,6 +7,12 @@ namespace Turian.Engine.Physics;
 /// <summary>An <see cref="IPhysicsWorld"/> simulated by BepuPhysics v2.</summary>
 public sealed partial class BepuPhysicsWorld : IPhysicsWorld
 {
+    /// <summary>
+    /// The upper sleep threshold, as a multiple of the squared one: a body below three times the sleep speed keeps its
+    /// calm steps but does not add to them.
+    /// </summary>
+    internal const float SleepHysteresis = 9f;
+
     static int liveCount;
     readonly BufferPool pool = new();
     readonly ThreadDispatcher? dispatcher;
@@ -33,8 +40,12 @@ public sealed partial class BepuPhysicsWorld : IPhysicsWorld
             dispatcher = new ThreadDispatcher(workers);
         }
 
-        Log.Logger.LogInformation("Physics steps on {Workers} worker thread(s) of {Processors} logical processor(s)",
-            workers, Environment.ProcessorCount);
+        Log.Logger.LogInformation(
+            "Physics {Build}: WorkerThreads={WorkerThreads}, resolved {Workers} worker thread(s) of {Processors} logical processor(s), {Substeps} substep(s), {Iterations} solver iteration(s)",
+            typeof(BepuPhysicsWorld).Assembly
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion,
+            settings.WorkerThreads, workers, Environment.ProcessorCount, Math.Max(1, settings.Substeps),
+            Math.Max(1, settings.SolverIterations));
 
         Events = new BepuEventSink(this, dispatcher?.ThreadCount ?? 1);
         substeps = Math.Max(1, settings.Substeps);
@@ -79,6 +90,12 @@ public sealed partial class BepuPhysicsWorld : IPhysicsWorld
 
     /// <inheritdoc />
     public int BodyCount => records.Count;
+
+    /// <inheritdoc />
+    public PhysicsBodyCounts? BodyCounts => disposed ? new PhysicsBodyCounts() : new PhysicsBodyCounts(
+        records.Count, Simulation.Statics.Count,
+        records.Count - Simulation.Statics.Count - Simulation.Bodies.ActiveSet.Count +
+        (worldAnchor is { } anchor && Simulation.Bodies[anchor.Body].Awake ? 1 : 0));
 
     /// <inheritdoc />
     public ReadOnlySpan<ContactEvent> Contacts => Events.Contacts;
@@ -215,7 +232,7 @@ public sealed partial class BepuPhysicsWorld : IPhysicsWorld
 
         var reference = Simulation.Bodies[record.Body];
         reference.Pose = target;
-        reference.Awake = true;
+        WakeBody(record);
         reference.UpdateBounds();
         record.LockedPosition = target.Position;
     }
@@ -244,7 +261,7 @@ public sealed partial class BepuPhysicsWorld : IPhysicsWorld
 
         var reference = Simulation.Bodies[record.Body];
         reference.Velocity = new BodyVelocity(velocity.Linear, velocity.Angular);
-        reference.Awake = true;
+        WakeBody(record);
     }
 
     /// <inheritdoc />
@@ -270,7 +287,7 @@ public sealed partial class BepuPhysicsWorld : IPhysicsWorld
 
         var reference = Simulation.Bodies[record.Body];
         reference.ApplyImpulse(impulse, worldPoint - reference.Pose.Position);
-        reference.Awake = true;
+        WakeBody(record);
     }
 
     /// <inheritdoc />
@@ -284,7 +301,7 @@ public sealed partial class BepuPhysicsWorld : IPhysicsWorld
 
         var reference = Simulation.Bodies[record.Body];
         reference.ApplyAngularImpulse(angularImpulse);
-        reference.Awake = true;
+        WakeBody(record);
     }
 
     /// <inheritdoc />
@@ -309,7 +326,7 @@ public sealed partial class BepuPhysicsWorld : IPhysicsWorld
         var sin = MathF.Sqrt(MathF.Max(0f, 1f - delta.W * delta.W));
         var axis = sin > 1e-6f ? new Vector3(delta.X, delta.Y, delta.Z) / sin : Vector3.Zero;
         reference.Velocity = new BodyVelocity((goal.Position - current.Position) / deltaTime, axis * angle / deltaTime);
-        reference.Awake = true;
+        WakeBody(record);
         record.HasKinematicTarget = true;
     }
 
@@ -319,7 +336,7 @@ public sealed partial class BepuPhysicsWorld : IPhysicsWorld
         var record = Get(body);
         if (record.Motion != MotionType.Static)
         {
-            Simulation.Awakener.AwakenBody(record.Body);
+            WakeBody(record);
         }
     }
 
@@ -329,6 +346,7 @@ public sealed partial class BepuPhysicsWorld : IPhysicsWorld
         var record = Get(body);
         if (record.Motion != MotionType.Static && Simulation.Bodies[record.Body].Awake)
         {
+            record.CalmAt = -1;
             Simulation.Sleeper.Sleep(Simulation.Bodies.HandleToLocation[record.Body.Value].SetIndex == 0
                 ? Simulation.Bodies.HandleToLocation[record.Body.Value].Index
                 : -1);
@@ -389,6 +407,7 @@ public sealed partial class BepuPhysicsWorld : IPhysicsWorld
         Events.BeginStep();
         Simulation.Timestep(deltaTime, dispatcher);
         AfterStep();
+        HoldSleepCounts();
         Events.EndStep();
     }
 
@@ -458,6 +477,47 @@ public sealed partial class BepuPhysicsWorld : IPhysicsWorld
                 HoldLinearLocks(record);
             }
         }
+    }
+
+    /// <summary>
+    /// Bepu restarts a body's sleep count on any step above its threshold, so one rocking box can keep a whole settled
+    /// island awake. A step between the threshold and <see cref="SleepHysteresis"/> times it holds the count instead.
+    /// </summary>
+    void HoldSleepCounts()
+    {
+        var set = Simulation.Bodies.ActiveSet;
+        for (var i = 0; i < set.Count; i++)
+        {
+            ref var activity = ref set.Activity[i];
+            var handle = set.IndexToHandle[i].Value;
+            if (activity.SleepThreshold < 0f || handle >= byBody.Length || byBody[handle] is not { } record)
+            {
+                continue;
+            }
+
+            var velocity = set.DynamicsState[i].Motion.Velocity;
+            var energy = velocity.Linear.LengthSquared() + velocity.Angular.LengthSquared();
+            var held = record.CalmAt == steps - 1 && handle < testedAt.Length && testedAt[handle] == steps
+                ? record.CalmSteps : 0;
+            record.CalmSteps = CountCalmSteps(energy, activity.SleepThreshold, held);
+            record.CalmAt = steps;
+            activity.TimestepsUnderThresholdCount = (byte)Math.Min(record.CalmSteps, byte.MaxValue);
+            activity.SleepCandidate = record.CalmSteps >= activity.MinimumTimestepsUnderThreshold;
+        }
+    }
+
+    static int CountCalmSteps(float energy, float threshold, int held) =>
+        energy <= threshold ? Math.Min(held + 1, byte.MaxValue)
+        : energy < threshold * SleepHysteresis ? held : 0;
+
+    // Commands must not inherit a prior sleep candidacy before Bepu's next sleep pass.
+    void WakeBody(BepuBody record)
+    {
+        record.CalmAt = -1;
+        var reference = Simulation.Bodies[record.Body];
+        reference.Awake = true;
+        reference.Activity.TimestepsUnderThresholdCount = 0;
+        reference.Activity.SleepCandidate = false;
     }
 
     void HoldLinearLocks(BepuBody record)

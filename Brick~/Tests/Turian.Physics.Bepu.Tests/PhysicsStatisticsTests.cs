@@ -61,6 +61,116 @@ public sealed class PhysicsStatisticsTests
         Assert.Equal(1, scene.Statistics.AwakeBodies);
     }
 
+    /// <summary>Indexed counts immediately reflect sleep, wake, kinematic membership, rebuilds and removals.</summary>
+    [Fact]
+    public void Statistics_TrackLiveBodyMembershipAndSleep()
+    {
+        var (scene, services) = Scene(new PhysicsSettings { Multithreaded = false, Gravity = Vector3.Zero });
+        using var _ = services;
+        using var __ = scene;
+        var root = new Node();
+        var dynamic = new Node();
+        var body = new RigidbodyComponent();
+        dynamic.AddComponent(body);
+        dynamic.AddComponent(new BoxColliderComponent());
+        var kinematic = new Node { Position = new Vector3(10, 0, 0) };
+        var mover = new RigidbodyComponent { IsKinematic = true };
+        kinematic.AddComponent(mover);
+        kinematic.AddComponent(new BoxColliderComponent());
+        var ground = new Node { Position = new Vector3(20, 0, 0) };
+        ground.AddComponent(new BoxColliderComponent());
+        root.Children = [dynamic, kinematic, ground];
+        root.Awake(null, services);
+        scene.Simulate(1f / 60f);
+        Assert.Equal(new PhysicsBodyCounts(3, 1, 0), scene.World!.BodyCounts);
+        Assert.Equal((3, 1, 0), Counts(scene));
+
+        body.Sleep();
+        mover.Sleep();
+        Assert.Equal(new PhysicsBodyCounts(3, 1, 2), scene.World.BodyCounts);
+        Assert.Equal((3, 1, 2), Counts(scene));
+        body.WakeUp();
+        Assert.Equal((3, 1, 1), Counts(scene));
+        mover.LinearVelocity = Vector3.UnitX;
+        Assert.Equal((3, 1, 0), Counts(scene));
+
+        body.IsKinematic = true;
+        scene.Simulate(1f / 60f);
+        Assert.Equal((3, 1, 0), Counts(scene));
+        ground.DestroyImmediate();
+        dynamic.DestroyImmediate();
+        scene.Simulate(1f / 60f);
+        Assert.Equal((1, 0, 0), Counts(scene));
+        scene.Dispose();
+        Assert.Equal((0, 0, 0), Counts(scene));
+
+        static (int, int, int) Counts(PhysicsScene scene)
+        {
+            var stats = scene.Statistics;
+            return (stats.Bodies, stats.StaticBodies, stats.SleepingBodies);
+        }
+    }
+
+    /// <summary>Backend-only bodies are excluded when their membership differs from the scene's tracked bodies.</summary>
+    [Fact]
+    public void Statistics_FallBackWhenBackendHasUntrackedBodies()
+    {
+        var (scene, services) = Scene(new PhysicsSettings { Multithreaded = false, Gravity = Vector3.Zero });
+        using var _ = services;
+        using var __ = scene;
+        var node = new Node();
+        var body = new RigidbodyComponent();
+        node.AddComponent(body);
+        node.AddComponent(new BoxColliderComponent());
+        var root = new Node();
+        var ground = new Node { Position = new Vector3(20, 0, 0) };
+        ground.AddComponent(new BoxColliderComponent());
+        root.Children = [node, ground];
+        root.Awake(null, services);
+        scene.Simulate(1f / 60f);
+        body.Sleep();
+        var world = scene.World!;
+        var shape = world.CreateShape(ShapeDesc.Box(Vector3.One));
+        world.CreateStatic(new StaticDesc(new PhysicsPose(new Vector3(10, 0, 0), Quaternion.Identity),
+            [new ColliderDesc(shape, PhysicsPose.Identity, CollisionFilter.Default, MaterialDesc.Default, false, 999)]));
+
+        var stats = scene.Statistics;
+
+        Assert.Equal(new PhysicsBodyCounts(3, 2, 1), world.BodyCounts);
+        Assert.Equal((2, 1, 1), (stats.Bodies, stats.StaticBodies, stats.SleepingBodies));
+        body.WakeUp();
+        Assert.Equal(1, scene.Statistics.AwakeBodies);
+        Assert.Equal(0, scene.Statistics.SleepingBodies);
+    }
+
+    /// <summary>World-connected joints keep their hidden anchor out of body and sleep counts.</summary>
+    [Fact]
+    public void StatisticsExcludeTheWorldJointAnchor()
+    {
+        var (scene, services) = Scene(new PhysicsSettings { Multithreaded = false, Gravity = Vector3.Zero });
+        using var _ = services;
+        using var __ = scene;
+        var root = new Node();
+        var body = new RigidbodyComponent();
+        root.AddComponent(body);
+        root.AddComponent(new BoxColliderComponent());
+        var joint = new FixedJointComponent();
+        root.AddComponent(joint);
+        root.Awake(null, services);
+        scene.Simulate(1f / 60f);
+        Assert.Equal(new PhysicsBodyCounts(1, 0, 0), scene.World!.BodyCounts);
+        Assert.Equal(0, scene.Statistics.SleepingBodies);
+        body.Sleep();
+        Assert.Equal(new PhysicsBodyCounts(1, 0, 1), scene.World.BodyCounts);
+        body.WakeUp();
+        joint.IsActive = false;
+        scene.Simulate(1f / 60f);
+        Assert.Equal(new PhysicsBodyCounts(1, 0, 0), scene.World.BodyCounts);
+        root.DestroyImmediate();
+        scene.Simulate(1f / 60f);
+        Assert.Equal(new PhysicsBodyCounts(0, 0, 0), scene.World.BodyCounts);
+    }
+
     /// <summary>Touching pairs count, and exits do not.</summary>
     [Fact]
     public void Statistics_CountTouchingPairs()
