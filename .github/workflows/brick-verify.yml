@@ -11,6 +11,8 @@ permissions:
 
 jobs:
   brick:
-    uses: MASS4ORG/action-brick-release/.github/workflows/verify.yml@v1
+    uses: MASS4ORG/brick-workflows/.github/workflows/verify.yml@v1
     with:
       source-tests: Brick~/Tests/Turian.Physics.Bepu.Tests/Turian.Physics.Bepu.Tests.csproj
+      source-test-dependency: >-
+        {"repository":"MASS4ORG/org.mass4.turian.physics","ref":"v1.0.0","path":"org.mass4.turian.physics"}
