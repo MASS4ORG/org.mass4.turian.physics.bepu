@@ -1,9 +1,12 @@
 {
+  "id": "org.mass4.turian.physics.bepu",
   "version": "1.0.0",
   "displayName": "3D Physics: BepuPhysics backend",
   "description": "Simulates the 3D Physics brick's worlds with BepuPhysics v2.",
   "author": "MASS4",
   "license": "MPL-2.0",
+  "categories": ["turian:simulation"],
+  "keywords": ["physics", "bepu"],
   "dependencies": {
     "org.mass4.turian.physics": "^1.0.0"
   },
@@ -11,28 +14,22 @@
     "BepuPhysics": "2.5.0-beta.33",
     "BepuUtilities": "2.5.0-beta.33"
   },
-  "categories": [
-    "turian:simulation"
-  ],
-  "keywords": [
-    "physics",
-    "bepu"
-  ],
-  "id": "org.mass4.turian.physics.bepu",
-  "exclude": [
-    "Brick~/Tests",
-    ".github",
-    ".gitignore",
-    ".script-*.py",
-    ".script-*.cs",
-    ".script-*.sh",
-    ".editorconfig"
-  ],
   "roles": {
     "source": "Brick~/Source",
     "tests": "Brick~/Tests",
     "precast": "Brick~/Precast",
     "bake": "Brick~/Bake"
   },
+  "exclude": [
+    "Brick~/Tests",
+    ".github",
+    ".gitignore",
+    ".local",
+    ".script-*.py",
+    ".script-*.cs",
+    ".script-*.sh",
+    ".script-*.ps1",
+    ".editorconfig"
+  ],
   "bake": "auto"
 }
