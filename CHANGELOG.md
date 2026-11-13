@@ -6,8 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-- Changed: brick workflows and publisher secret setup.
+## [1.1.1] - 2026-11-13
+
+- Changed: tests cover the per-session physics worlds of physics.
+- Fixed: source tests build against the physics brick.
 
 ## [1.0.0]
 
 - Added: BepuPhysics backend #64 #111.
+- Changed: brick workflows and publisher secret setup.
