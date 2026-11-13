@@ -6,17 +6,38 @@ namespace Turian.Tests;
 [Collection(SerialTests.Name)]
 public sealed class PhysicsModuleTests
 {
-    static ServiceProvider Session()
+    /// <summary>A running game's composed services and lifetimes, with the first session begun.</summary>
+    sealed class Game : IDisposable
     {
-        var settings = new AppSettings();
-        settings.Loaded.Use(new PhysicsSettings { Multithreaded = false });
-        return new ServiceCollection()
-            .AddSingleton<IAppSettings>(settings)
-            .AddSingleton<LayerFilter>()
-            .AddSingleton<IPhysicsQueries, PhysicsQueries>()
-            .AddSingleton(new SimulationClock())
-            .AddEngineModules(typeof(PhysicsModule).Assembly)
-            .BuildServiceProvider();
+        public Game()
+        {
+            var settings = new AppSettings();
+            settings.Loaded.Use(new PhysicsSettings { Multithreaded = false });
+            Services = new ServiceCollection()
+                .AddSingleton<IAppSettings>(settings)
+                .AddSingleton<LayerFilter>()
+                .AddSingleton<IPhysicsQueries, PhysicsQueries>()
+                .AddSingleton(new SimulationClock())
+                .AddSingleton<ISessionLifetime>(_ => Lifetimes!)
+                .AddEngineModules(typeof(PhysicsModule).Assembly)
+                .BuildServiceProvider();
+            var host = new LifetimeHost(new SubsystemRegistry(Services.GetServices<SubsystemDescriptor>()), Services);
+            Lifetimes = new GameLifetimes(host, Scenes, static _ => Task.CompletedTask);
+            Lifetimes.Start();
+            SceneServices = new SubsystemServiceProvider(Services, host);
+        }
+
+        public ServiceProvider Services { get; }
+        public SceneManager Scenes { get; } = new(new AssetDatabase());
+        public GameLifetimes Lifetimes { get; }
+        public IServiceProvider SceneServices { get; }
+        public PhysicsScene Physics => Lifetimes.Session!.Get<PhysicsScene>();
+
+        public void Dispose()
+        {
+            Lifetimes.Dispose();
+            Services.Dispose();
+        }
     }
 
     static Node Scene(IServiceProvider services)
@@ -33,44 +54,49 @@ public sealed class PhysicsModuleTests
         return root;
     }
 
-    /// <summary>The module registers one scene as the session's fixed-tick system and query backend.</summary>
+    /// <summary>The session owns one world; scene objects receive it and core's queries answer from it.</summary>
     [Fact]
-    public void Module_ForwardsTheSceneToTickerAndQueries()
+    public void Module_GivesTheSessionsWorldToScenesAndQueries()
     {
-        using var services = Session();
+        using var game = new Game();
 
-        var scene = services.GetRequiredService<PhysicsScene>();
-        Assert.Same(scene, Assert.Single(services.GetServices<IFixedTickSystem>()));
-        Assert.Same(scene, services.GetRequiredService<IPhysicsQueryBackend>());
+        var scene = game.Physics;
+        Assert.Empty(game.Services.GetServices<IFixedTickSystem>());
         Assert.True(scene.IsSimulating);
-        Scene(services);
+        var root = Scene(game.SceneServices);
+        Assert.Same(scene, root.Children[1].GetComponent<RigidbodyComponent>()!.Physics);
         scene.FixedTick(1, 1d / 60d);
 
-        var hit = services.GetRequiredService<IPhysicsQueries>().Raycast(new Ray(new Vector3(0, 10, 0), -Vector3.UnitY));
+        var hit = game.Services.GetRequiredService<IPhysicsQueries>().Raycast(new Ray(new Vector3(0, 10, 0), -Vector3.UnitY));
         Assert.NotNull(hit);
         Assert.Equal(2.5f, hit.Value.Point.Y, 0.05f);
     }
 
-    /// <summary>Starting and stopping a session three times leaves no backend world alive.</summary>
+    /// <summary>Restarting the session three times replaces its world each time, and ending the game frees the last.</summary>
     [Fact]
     public void Sessions_DisposeTheirWorlds()
     {
         var before = BepuPhysicsWorld.LiveCount;
-        for (var i = 0; i < 3; i++)
+        using (var game = new Game())
         {
-            var services = Session();
-            var root = Scene(services);
-            var ticker = new SceneTicker(new SceneManager(new AssetDatabase()), services.GetRequiredService<SimulationClock>())
+            var ticker = new SceneTicker(game.Scenes, game.Services.GetRequiredService<SimulationClock>())
             {
-                Systems = [.. services.GetServices<IFixedTickSystem>()],
+                Lifetimes = game.Lifetimes,
             };
-            ticker.Tick(0.1);
-            Assert.Equal(before + 1, BepuPhysicsWorld.LiveCount);
-            Assert.NotNull(root);
-            services.Dispose();
+            for (var i = 0; i < 3; i++)
+            {
+                var world = game.Physics;
+                Assert.NotNull(Scene(game.SceneServices));
+                ticker.Tick(0.1);
+                Assert.Equal(before + 1, BepuPhysicsWorld.LiveCount);
+
+                game.Lifetimes.Restart();
+                ticker.Tick(0.1);
+                Assert.NotSame(world, game.Physics);
+                Assert.Equal(before + 1, BepuPhysicsWorld.LiveCount);
+            }
         }
 
         Assert.Equal(before, BepuPhysicsWorld.LiveCount);
     }
-
 }
