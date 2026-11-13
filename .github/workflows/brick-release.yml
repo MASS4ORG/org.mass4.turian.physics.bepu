@@ -16,4 +16,4 @@ jobs:
     with:
       source-tests: Brick~/Tests/Turian.Physics.Bepu.Tests/Turian.Physics.Bepu.Tests.csproj
       source-test-dependency: >-
-        {"repository":"MASS4ORG/org.mass4.turian.physics","ref":"v1.0.0","path":"org.mass4.turian.physics"}
+        {"repository":"MASS4ORG/org.mass4.turian.physics","ref":"v1.2.0","path":"org.mass4.turian.physics"}
